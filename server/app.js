@@ -1,61 +1,26 @@
-const Koa = require('koa')
-const Router = require('koa-router')
-const app = new Koa()
-const router = new Router()
+/* 实例化外部依赖 */
+let Koa = require("koa");
+let WebSocket = require("koa-websocket");
 
-const views = require('koa-views')
-const co = require('co')
-const convert = require('koa-convert')
-const json = require('koa-json')
-const onerror = require('koa-onerror')
-const bodyparser = require('koa-bodyparser')
-const logger = require('koa-logger')
-const debug = require('debug')('koa2:server')
-const path = require('path')
+/* 实例化 WebSocket, 实例化储存所有上线文数组 并分配监听的端口 */
+let app = WebSocket(new Koa());
+let ctxs = [];
+app.listen(3000);
 
-const config = require('./config')
-const routes = require('./routes')
-
-const port = process.env.PORT || config.port
-
-// error handler
-onerror(app)
-
-// middlewares
-app.use(bodyparser())
-  .use(json())
-  .use(logger())
-  .use(require('koa-static')(__dirname + '/public'))
-  .use(views(path.join(__dirname, '/views'), {
-    options: {settings: {views: path.join(__dirname, 'views')}},
-    map: {'njk': 'nunjucks'},
-    extension: 'njk'
-  }))
-  .use(router.routes())
-  .use(router.allowedMethods())
-
-// logger
-app.use(async (ctx, next) => {
-  const start = new Date()
-  await next()
-  const ms = new Date() - start
-  console.log(`${ctx.method} ${ctx.url} - $ms`)
-})
-
-router.get('/', async (ctx, next) => {
-  // ctx.body = 'Hello World'
-  ctx.state = {
-    title: 'dome'
-  }
-  await ctx.render('index', ctx.state)
-})
-
-routes(router)
-app.on('error', function(err, ctx) {
-  console.log(err)
-  logger.error('server error', err, ctx)
-})
-
-module.exports = app.listen(config.port, () => {
-  console.log(`Listening on http://localhost:${config.port}`)
-})
+/* 实现简单的接发消息 */
+app.ws.use((ctx, next) => {
+  /* 每打开一个连接就往 上线文数组中 添加一个上下文 */
+  ctxs.push(ctx);
+  ctx.websocket.on("message", (message) => {
+    console.log(message);
+    for(let i = 0; i < ctxs.length; i++) {
+      if (ctx == ctxs[i]) continue;
+      ctxs[i].websocket.send(message);
+    }
+  });
+  ctx.websocket.on("close", (message) => {
+    /* 连接关闭时, 清理 上下文数组, 防止报错 */
+    let index = ctxs.indexOf(ctx);
+    ctxs.splice(index, 1);
+  });
+});
